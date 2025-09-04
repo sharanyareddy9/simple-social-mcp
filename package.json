@@ -5,14 +5,25 @@
   "type": "module",
   "main": "api/index.js",
   "scripts": {
-    "dev": "node api/index.js",
-    "start": "node api/index.js",
-    "build": "echo 'No build step required'"
+    "dev": "tsx watch api/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc && node scripts/copy-files.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "@descope/mcp-express": "^1.0.4",
+    "@descope/node-sdk": "^1.6.13",
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "express": "^4.21.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.10.10",
+    "typescript": "^5.7.3",
+    "tsx": "^4.7.1"
   },
   "engines": {
     "node": "22.x"
