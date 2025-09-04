@@ -2,20 +2,12 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import DescopeClient from "@descope/node-sdk";
-import { z } from "zod";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const SERVER_URL = process.env.VERCEL_URL 
   ? `https://${process.env.VERCEL_URL}` 
-  : `https://localhost:${PORT}`;
-
-// Initialize Descope client
-const descopeClient = DescopeClient({
-  projectId: process.env.DESCOPE_PROJECT_ID,
-  baseUrl: process.env.DESCOPE_BASE_URL,
-});
+  : `http://localhost:${PORT}`;
 
 // Middleware
 app.use(express.json());
@@ -24,7 +16,7 @@ app.use(cors({
   credentials: true
 }));
 
-// Simple authentication middleware
+// Simple authentication middleware (mock for now)
 const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   
@@ -41,23 +33,29 @@ const authenticate = async (req, res, next) => {
 
   const token = authHeader.substring(7);
   
-  try {
-    const authInfo = await descopeClient.validateSession(token);
-    req.user = authInfo;
-    next();
-  } catch (error) {
+  // Mock authentication for testing - accept any token that starts with "test-"
+  if (!token.startsWith('test-')) {
     return res.status(401).json({
       jsonrpc: "2.0", 
       error: {
         code: -32001,
-        message: `Authentication failed: ${error.message}`
+        message: "Authentication failed - use a token starting with 'test-'"
       },
       id: null
     });
   }
+
+  // Mock user object
+  req.user = {
+    userId: 'test-user-123',
+    name: 'Test User',
+    email: 'test@example.com'
+  };
+  
+  next();
 };
 
-// OAuth endpoints for social login
+// OAuth discovery endpoint (simplified)
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
   res.json({
     issuer: SERVER_URL,
@@ -69,62 +67,6 @@ app.get('/.well-known/oauth-authorization-server', (req, res) => {
     grant_types_supported: ["authorization_code"],
     token_endpoint_auth_methods_supported: ["client_secret_post"],
     code_challenge_methods_supported: ["S256"]
-  });
-});
-
-app.get('/oauth/authorize', (req, res) => {
-  const { client_id, redirect_uri, scope, state, code_challenge, code_challenge_method } = req.query;
-  
-  // Redirect to Descope OAuth with social providers
-  const descopeAuthUrl = `https://auth.descope.io/oauth2/v1/auth` +
-    `?client_id=${process.env.DESCOPE_PROJECT_ID}` +
-    `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
-    `&scope=${encodeURIComponent(scope)}` +
-    `&response_type=code` +
-    `&state=${state}` +
-    `${code_challenge ? `&code_challenge=${code_challenge}` : ''}` +
-    `${code_challenge_method ? `&code_challenge_method=${code_challenge_method}` : ''}`;
-  
-  res.redirect(descopeAuthUrl);
-});
-
-app.post('/oauth/token', async (req, res) => {
-  const { grant_type, code, redirect_uri, client_id, client_secret, code_verifier } = req.body;
-  
-  try {
-    // Exchange authorization code for access token using Descope
-    const tokenResponse = await fetch('https://auth.descope.io/oauth2/v1/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type,
-        code,
-        redirect_uri,
-        client_id: process.env.DESCOPE_PROJECT_ID,
-        client_secret: process.env.DESCOPE_ACCESS_KEY,
-        ...(code_verifier && { code_verifier })
-      })
-    });
-    
-    const tokenData = await tokenResponse.json();
-    res.json(tokenData);
-  } catch (error) {
-    res.status(400).json({
-      error: 'invalid_grant',
-      error_description: error.message
-    });
-  }
-});
-
-app.get('/oauth/userinfo', authenticate, (req, res) => {
-  res.json({
-    sub: req.user.userId,
-    name: req.user.name || 'User',
-    email: req.user.email,
-    picture: req.user.picture,
-    preferred_username: req.user.loginIds?.[0]
   });
 });
 
@@ -397,19 +339,31 @@ app.get('/', (req, res) => {
             color: #64748b;
             font-size: 0.9rem;
         }
+        .auth-info {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1 class="title">🔐 Simple Social MCP</h1>
-        <p class="subtitle">Model Context Protocol Server with Social Login</p>
+        <p class="subtitle">Model Context Protocol Server (Demo Version)</p>
+        
+        <div class="auth-info">
+            <h3>🧪 Demo Mode</h3>
+            <p>This server is running in demo mode. Use any bearer token starting with 'test-' to authenticate (e.g., 'test-token-123').</p>
+        </div>
         
         <div class="feature">
             <h3>🌟 Features</h3>
             <ul>
-                <li>Social login via Descope (Google, GitHub, etc.)</li>
-                <li>OAuth 2.1 compliant authentication</li>
-                <li>Simple utility tools for Claude</li>
+                <li>Simple MCP protocol implementation</li>
+                <li>Basic authentication (demo mode)</li>
+                <li>Three utility tools for Claude</li>
                 <li>Vercel-ready serverless deployment</li>
             </ul>
         </div>
@@ -437,6 +391,7 @@ app.get('/', (req, res) => {
 
         <div style="text-align: center; margin-top: 32px; color: #64748b;">
             <p>Ready to connect with Claude Web! 🚀</p>
+            <p><small>Use bearer token: test-demo-token</small></p>
         </div>
     </div>
 </body>
@@ -450,6 +405,7 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     server: 'Simple Social MCP',
     version: '1.0.0',
+    mode: 'demo',
     endpoints: {
       sse: `${SERVER_URL}/sse`,
       message: `${SERVER_URL}/message`,
@@ -467,6 +423,7 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
     console.log(`💬 Message Endpoint: ${SERVER_URL}/message`);
     console.log(`🔑 OAuth: ${SERVER_URL}/.well-known/oauth-authorization-server`);
+    console.log(`🧪 Demo Mode: Use bearer token 'test-demo-token'`);
   });
 }
 
