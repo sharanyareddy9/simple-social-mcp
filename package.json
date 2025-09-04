@@ -1,0 +1,31 @@
+{
+  "name": "simple-social-mcp",
+  "version": "1.0.0",
+  "description": "Simple MCP Server with Social Login for Claude Web",
+  "type": "module",
+  "main": "api/index.js",
+  "scripts": {
+    "dev": "node api/index.js",
+    "start": "node api/index.js",
+    "build": "echo 'No build step required for serverless functions'"
+  },
+  "dependencies": {
+    "@descope/node-sdk": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "zod": "^3.24.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "social-login",
+    "descope",
+    "claude",
+    "vercel"
+  ],
+  "author": "Simple Social MCP",
+  "license": "MIT"
+}
