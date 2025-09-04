@@ -1,75 +1,182 @@
 #!/usr/bin/env node
-import dotenv from "dotenv";
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { descopeMcpAuthRouter, descopeMcpBearerAuth } from "@descope/mcp-express";
-import { createServer } from "./create-server.js";
-// Environment setup
-dotenv.config();
-const PORT = process.env.PORT || 3001;
-const SERVER_URL = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : `http://localhost:${PORT}`;
-// Initialize Express app
+
 const app = express();
-// Middleware setup
+const PORT = process.env.PORT || 3001;
+const SERVER_URL = process.env.VERCEL_URL 
+  ? `https://${process.env.VERCEL_URL}` 
+  : `http://localhost:${PORT}`;
+
+// Middleware
 app.use(express.json());
 app.use(cors({
-    origin: "*",
-    methods: '*',
-    allowedHeaders: 'Authorization, Origin, Content-Type, Accept, mcp-protocol-version, *',
-    credentials: true
+  origin: '*',
+  credentials: true
 }));
-app.options("*", cors());
-// Auth middleware - OAuth endpoints
-app.use(descopeMcpAuthRouter());
-app.use(["/sse"], descopeMcpBearerAuth());
-// Initialize transport
-const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // set to undefined for stateless servers
-});
-// MCP SSE endpoint
-app.post('/sse', async (req, res) => {
-    console.log('Received MCP request:', req.body);
-    try {
-        await transport.handleRequest(req, res, req.body);
-    }
-    catch (error) {
-        console.error('Error handling MCP request:', error);
-        if (!res.headersSent) {
-            res.status(500).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32603,
-                    message: 'Internal server error',
-                },
-                id: null,
-            });
+
+// MCP Tools (without authentication for testing)
+const tools = {
+  greet_user: {
+    name: "greet_user",
+    description: "Simple greeting tool",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "Optional custom greeting message"
         }
+      }
     }
-});
-// Method not allowed handlers for MCP endpoint
-const methodNotAllowed = (req, res) => {
-    console.log(`Received ${req.method} MCP request`);
-    res.status(405).json({
-        jsonrpc: "2.0",
-        error: {
-            code: -32000,
-            message: "Method not allowed."
-        },
-        id: null
-    });
+  },
+  
+  get_current_time: {
+    name: "get_current_time", 
+    description: "Get the current date and time",
+    inputSchema: {
+      type: "object",
+      properties: {
+        timezone: {
+          type: "string",
+          description: "Timezone (e.g., 'UTC', 'America/New_York')"
+        }
+      }
+    }
+  }
 };
-app.get('/sse', methodNotAllowed);
-app.delete('/sse', methodNotAllowed);
+
+// Simple MCP Server-Sent Events endpoint (no auth)
+app.get('/sse', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Authorization, Cache-Control'
+  });
+
+  const initialMessage = {
+    jsonrpc: "2.0",
+    method: "notifications/initialized",
+    params: {
+      protocolVersion: "2025-03-26",
+      serverInfo: {
+        name: "Simple MCP",
+        version: "1.0.0"
+      },
+      capabilities: {
+        tools: Object.keys(tools)
+      }
+    }
+  };
+
+  res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
+
+  req.on('close', () => {
+    res.end();
+  });
+});
+
+// Simple MCP Message endpoint (no auth)
+app.post('/message', async (req, res) => {
+  const { jsonrpc, method, params, id } = req.body;
+
+  if (jsonrpc !== "2.0") {
+    return res.json({
+      jsonrpc: "2.0",
+      error: { code: -32600, message: "Invalid Request" },
+      id
+    });
+  }
+
+  try {
+    let result;
+
+    switch (method) {
+      case 'initialize':
+        result = {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: {
+            name: "Simple MCP",
+            version: "1.0.0"
+          }
+        };
+        break;
+
+      case 'tools/list':
+        result = {
+          tools: Object.values(tools)
+        };
+        break;
+
+      case 'tools/call':
+        const { name, arguments: args } = params;
+        result = await handleToolCall(name, args || {});
+        break;
+
+      default:
+        throw new Error(`Unknown method: ${method}`);
+    }
+
+    res.json({
+      jsonrpc: "2.0",
+      result,
+      id
+    });
+
+  } catch (error) {
+    res.json({
+      jsonrpc: "2.0", 
+      error: {
+        code: -32603,
+        message: error.message
+      },
+      id
+    });
+  }
+});
+
+// Tool execution handler (no auth)
+async function handleToolCall(toolName, args) {
+  switch (toolName) {
+    case 'greet_user':
+      const customMessage = args.message || "Hello there!";
+      return {
+        content: [{
+          type: "text",
+          text: `${customMessage} 👋\n\nThis is a simple MCP server without authentication.`
+        }]
+      };
+
+    case 'get_current_time':
+      const timezone = args.timezone || 'UTC';
+      const now = new Date();
+      const timeString = timezone === 'UTC' 
+        ? now.toISOString() 
+        : now.toLocaleString('en-US', { timeZone: timezone });
+      
+      return {
+        content: [{
+          type: "text",
+          text: `Current time: ${timeString} (${timezone})`
+        }]
+      };
+
+    default:
+      throw new Error(`Unknown tool: ${toolName}`);
+  }
+}
+
 // Home page
 app.get('/', (req, res) => {
-    const html = `
+  res.send(`
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Social MCP Server</title>
+    <title>Simple MCP Server</title>
     <style>
         body { 
             font-family: system-ui, sans-serif;
@@ -93,101 +200,47 @@ app.get('/', (req, res) => {
             font-family: monospace;
             margin: 8px 0;
         }
-        .auth-info {
-            background: #065f46;
-            color: #d1fae5;
-            padding: 16px;
-            border-radius: 8px;
-            margin: 16px 0;
-        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔒 Social MCP Server</h1>
-        <p>MCP server with Descope social authentication</p>
-        
-        <div class="auth-info">
-            ✅ OAuth 2.1 + Social Login Enabled<br>
-            Using Official @descope/mcp-express
-        </div>
+        <h1>🔧 Simple MCP Server</h1>
+        <p>Basic MCP server without authentication for testing</p>
         
         <h3>Endpoints</h3>
         <div class="endpoint">SSE: ${SERVER_URL}/sse</div>
-        <div class="endpoint">OAuth Discovery: ${SERVER_URL}/.well-known/oauth-authorization-server</div>
-        <div class="endpoint">Authorization: ${SERVER_URL}/authorize</div>
-        <div class="endpoint">Registration: ${SERVER_URL}/register</div>
+        <div class="endpoint">Message: ${SERVER_URL}/message</div>
         
-        <p>Ready for Claude Web with social authentication! 🚀</p>
+        <p>Ready for Claude Web testing! 🚀</p>
     </div>
 </body>
-</html>`;
-    res.send(html);
+</html>`);
 });
+
 // Health endpoint
 app.get('/health', (req, res) => {
-    res.json({
-        status: 'healthy',
-        server: 'Social MCP',
-        version: '1.0.0',
-        auth: 'descope-oauth',
-        package: '@descope/mcp-express',
-        endpoints: {
-            sse: `${SERVER_URL}/sse`,
-            oauth_discovery: `${SERVER_URL}/.well-known/oauth-authorization-server`,
-            authorize: `${SERVER_URL}/authorize`,
-            register: `${SERVER_URL}/register`
-        },
-        timestamp: new Date().toISOString()
-    });
+  res.json({
+    status: 'healthy',
+    server: 'Simple MCP',
+    version: '1.0.0',
+    auth: 'none',
+    endpoints: {
+      sse: `${SERVER_URL}/sse`,
+      message: `${SERVER_URL}/message`
+    },
+    timestamp: new Date().toISOString()
+  });
 });
-// Create and connect MCP server
-const { server } = createServer();
-// Server setup
-const setupServer = async () => {
-    try {
-        await server.connect(transport);
-        console.log('✅ MCP Server connected successfully');
-    }
-    catch (error) {
-        console.error('❌ Failed to set up the MCP server:', error);
-        throw error;
-    }
-};
-// Start server
-setupServer()
-    .then(() => {
-    app.listen(PORT, () => {
-        console.log(`🚀 Social MCP Server running on port ${PORT}`);
-        console.log(`📍 Server URL: ${SERVER_URL}`);
-        console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
-        console.log(`🔒 OAuth Discovery: ${SERVER_URL}/.well-known/oauth-authorization-server`);
-        console.log(`🔑 Authorization: ${SERVER_URL}/authorize`);
-        console.log(`📝 Registration: ${SERVER_URL}/register`);
-        console.log(`✅ Descope Authentication Enabled (@descope/mcp-express)`);
-    });
-})
-    .catch(error => {
-    console.error('❌ Failed to start server:', error);
-    process.exit(1);
-});
-// Handle server shutdown
-process.on('SIGINT', async () => {
-    console.log('🛑 Shutting down server...');
-    try {
-        console.log(`Closing transport`);
-        await transport.close();
-    }
-    catch (error) {
-        console.error(`Error closing transport:`, error);
-    }
-    try {
-        await server.close();
-        console.log('✅ Server shutdown complete');
-    }
-    catch (error) {
-        console.error('Error closing server:', error);
-    }
-    process.exit(0);
-});
+
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`🚀 Simple MCP Server running on port ${PORT}`);
+    console.log(`📍 Server URL: ${SERVER_URL}`);
+    console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
+    console.log(`💬 Message Endpoint: ${SERVER_URL}/message`);
+    console.log(`✅ No Authentication Required`);
+  });
+}
+
 export default app;
