@@ -13,7 +13,7 @@
     "declaration": false,
     "resolveJsonModule": true,
     "allowJs": false,
-    "noEmit": false,
+    "noEmit": true,
     "sourceMap": false,
     "types": ["node"]
   },
