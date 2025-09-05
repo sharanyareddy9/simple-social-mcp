@@ -3,8 +3,8 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "node",
-    "outDir": "api",
-    "rootDir": "api",
+    "outDir": "./api",
+    "rootDir": "./api",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -12,6 +12,9 @@
     "allowSyntheticDefaultImports": true,
     "declaration": false,
     "resolveJsonModule": true,
+    "allowJs": false,
+    "noEmit": false,
+    "sourceMap": false,
     "types": ["node"]
   },
   "include": [
@@ -19,6 +22,11 @@
   ],
   "exclude": [
     "node_modules",
-    "api/**/*.js"
-  ]
+    "api/**/*.js",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+  "ts-node": {
+    "esm": true
+  }
 }

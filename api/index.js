@@ -1,278 +1,75 @@
 #!/usr/bin/env node
-import "dotenv/config";
+import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
-
-const app = express();
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { descopeMcpAuthRouter, descopeMcpBearerAuth } from "@descope/mcp-express";
+import { createServer } from "./create-server.js";
+// Environment setup
+dotenv.config();
 const PORT = process.env.PORT || 3001;
-const SERVER_URL = process.env.VERCEL_URL 
-  ? `https://${process.env.VERCEL_URL}` 
-  : `http://localhost:${PORT}`;
-
-// Load Descope credentials
-const DESCOPE_PROJECT_ID = process.env.DESCOPE_PROJECT_ID;
-const DESCOPE_MANAGEMENT_KEY = process.env.DESCOPE_MANAGEMENT_KEY;
-
-// Middleware
+const SERVER_URL = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : `http://localhost:${PORT}`;
+// Initialize Express app
+const app = express();
+// Middleware setup
 app.use(express.json());
 app.use(cors({
-  origin: '*',
-  credentials: true
+    origin: "*",
+    methods: '*',
+    allowedHeaders: 'Authorization, Origin, Content-Type, Accept, mcp-protocol-version, *',
+    credentials: true
 }));
-
-// MCP Tools (without authentication for testing)
-const tools = {
-  greet_user: {
-    name: "greet_user",
-    description: "Simple greeting tool",
-    inputSchema: {
-      type: "object",
-      properties: {
-        message: {
-          type: "string",
-          description: "Optional custom greeting message"
-        }
-      }
+app.options("*", cors());
+// Auth middleware - OAuth endpoints
+app.use(descopeMcpAuthRouter());
+app.use(["/sse"], descopeMcpBearerAuth());
+// Initialize transport
+const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined, // set to undefined for stateless servers
+});
+// MCP SSE endpoint
+app.post('/sse', async (req, res) => {
+    console.log('Received MCP request:', req.body);
+    try {
+        await transport.handleRequest(req, res, req.body);
     }
-  },
-  
-  get_current_time: {
-    name: "get_current_time", 
-    description: "Get the current date and time",
-    inputSchema: {
-      type: "object",
-      properties: {
-        timezone: {
-          type: "string",
-          description: "Timezone (e.g., 'UTC', 'America/New_York')"
+    catch (error) {
+        console.error('Error handling MCP request:', error);
+        if (!res.headersSent) {
+            res.status(500).json({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32603,
+                    message: 'Internal server error',
+                },
+                id: null,
+            });
         }
-      }
     }
-  }
+});
+// Method not allowed handlers for MCP endpoint
+const methodNotAllowed = (req, res) => {
+    console.log(`Received ${req.method} MCP request`);
+    res.status(405).json({
+        jsonrpc: "2.0",
+        error: {
+            code: -32000,
+            message: "Method not allowed."
+        },
+        id: null
+    });
 };
-
-// OAuth Authorization endpoint
-app.get('/oauth/authorize', (req, res) => {
-  if (!DESCOPE_PROJECT_ID) {
-    return res.status(500).json({
-      error: 'Server configuration error',
-      message: 'DESCOPE_PROJECT_ID not configured'
-    });
-  }
-
-  const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = req.query;
-
-  if (!client_id || !redirect_uri) {
-    return res.status(400).json({ error: 'Missing required parameters' });
-  }
-
-  // Redirect to Descope authentication
-  const descopeAuthUrl = `https://auth.descope.io/${DESCOPE_PROJECT_ID}/oauth2/authorize` +
-    `?client_id=${encodeURIComponent(client_id)}` +
-    `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
-    `&response_type=code` +
-    `&scope=openid profile email` +
-    (state ? `&state=${encodeURIComponent(state)}` : '') +
-    (code_challenge ? `&code_challenge=${encodeURIComponent(code_challenge)}` : '') +
-    (code_challenge_method ? `&code_challenge_method=${encodeURIComponent(code_challenge_method)}` : '');
-
-  return res.redirect(302, descopeAuthUrl);
-});
-
-// OAuth Token endpoint
-app.post('/oauth/token', async (req, res) => {
-  if (!DESCOPE_PROJECT_ID) {
-    return res.status(500).json({
-      error: 'Server configuration error',
-      message: 'DESCOPE_PROJECT_ID not configured'
-    });
-  }
-
-  const { code, client_id, redirect_uri, code_verifier } = req.body;
-
-  if (!code || !client_id) {
-    return res.status(400).json({ error: 'Missing required parameters' });
-  }
-
-  try {
-    // Exchange code for token with Descope
-    const tokenResponse = await fetch(`https://auth.descope.io/${DESCOPE_PROJECT_ID}/oauth2/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        grant_type: 'authorization_code',
-        code,
-        client_id,
-        redirect_uri,
-        code_verifier
-      })
-    });
-
-    const tokenData = await tokenResponse.json();
-
-    if (!tokenResponse.ok) {
-      return res.status(400).json({ error: 'Token exchange failed', details: tokenData });
-    }
-
-    return res.status(200).json(tokenData);
-
-  } catch (error) {
-    console.error('Token exchange error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// MCP Server-Sent Events endpoint (with auth)
-app.get('/sse', (req, res) => {
-  if (!DESCOPE_PROJECT_ID || !DESCOPE_MANAGEMENT_KEY) {
-    return res.status(500).json({
-      error: 'Server configuration error',
-      message: 'Environment variables not configured. Please set DESCOPE_PROJECT_ID and DESCOPE_MANAGEMENT_KEY.'
-    });
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ 
-      error: 'Authentication required - missing bearer token. Please authenticate via OAuth first.',
-      oauth: {
-        authorize: `${SERVER_URL}/oauth/authorize`,
-        token: `${SERVER_URL}/oauth/token`
-      }
-    });
-  }
-
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Authorization, Cache-Control'
-  });
-
-  const initialMessage = {
-    jsonrpc: "2.0",
-    method: "notifications/initialized",
-    params: {
-      protocolVersion: "2025-03-26",
-      serverInfo: {
-        name: "Simple MCP with Auth",
-        version: "1.0.0"
-      },
-      capabilities: {
-        tools: Object.keys(tools)
-      }
-    }
-  };
-
-  res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
-
-  req.on('close', () => {
-    res.end();
-  });
-});
-
-// Simple MCP Message endpoint (no auth)
-app.post('/message', async (req, res) => {
-  const { jsonrpc, method, params, id } = req.body;
-
-  if (jsonrpc !== "2.0") {
-    return res.json({
-      jsonrpc: "2.0",
-      error: { code: -32600, message: "Invalid Request" },
-      id
-    });
-  }
-
-  try {
-    let result;
-
-    switch (method) {
-      case 'initialize':
-        result = {
-          protocolVersion: "2025-03-26",
-          capabilities: { tools: {} },
-          serverInfo: {
-            name: "Simple MCP",
-            version: "1.0.0"
-          }
-        };
-        break;
-
-      case 'tools/list':
-        result = {
-          tools: Object.values(tools)
-        };
-        break;
-
-      case 'tools/call':
-        const { name, arguments: args } = params;
-        result = await handleToolCall(name, args || {});
-        break;
-
-      default:
-        throw new Error(`Unknown method: ${method}`);
-    }
-
-    res.json({
-      jsonrpc: "2.0",
-      result,
-      id
-    });
-
-  } catch (error) {
-    res.json({
-      jsonrpc: "2.0", 
-      error: {
-        code: -32603,
-        message: error.message
-      },
-      id
-    });
-  }
-});
-
-// Tool execution handler (no auth)
-async function handleToolCall(toolName, args) {
-  switch (toolName) {
-    case 'greet_user':
-      const customMessage = args.message || "Hello there!";
-      return {
-        content: [{
-          type: "text",
-          text: `${customMessage} 👋\n\nThis is a simple MCP server without authentication.`
-        }]
-      };
-
-    case 'get_current_time':
-      const timezone = args.timezone || 'UTC';
-      const now = new Date();
-      const timeString = timezone === 'UTC' 
-        ? now.toISOString() 
-        : now.toLocaleString('en-US', { timeZone: timezone });
-      
-      return {
-        content: [{
-          type: "text",
-          text: `Current time: ${timeString} (${timezone})`
-        }]
-      };
-
-    default:
-      throw new Error(`Unknown tool: ${toolName}`);
-  }
-}
-
+app.get('/sse', methodNotAllowed);
+app.delete('/sse', methodNotAllowed);
 // Home page
 app.get('/', (req, res) => {
-  res.send(`
+    const html = `
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple MCP Server</title>
+    <title>Social MCP Server</title>
     <style>
         body { 
             font-family: system-ui, sans-serif;
@@ -296,47 +93,110 @@ app.get('/', (req, res) => {
             font-family: monospace;
             margin: 8px 0;
         }
+        .auth-info {
+            background: #065f46;
+            color: #d1fae5;
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔧 Simple MCP Server</h1>
-        <p>Basic MCP server without authentication for testing</p>
+        <h1>🔒 Social MCP Server</h1>
+        <p>MCP server with Descope social authentication</p>
+        
+        <div class="auth-info">
+            ✅ OAuth 2.1 + Social Login Enabled<br>
+            Using Official @descope/mcp-express
+        </div>
         
         <h3>Endpoints</h3>
         <div class="endpoint">SSE: ${SERVER_URL}/sse</div>
-        <div class="endpoint">Message: ${SERVER_URL}/message</div>
+        <div class="endpoint">OAuth Discovery: ${SERVER_URL}/.well-known/oauth-authorization-server</div>
+        <div class="endpoint">Authorization: ${SERVER_URL}/authorize</div>
+        <div class="endpoint">Registration: ${SERVER_URL}/register</div>
         
-        <p>Ready for Claude Web testing! 🚀</p>
+        <p>Ready for Claude Web with social authentication! 🚀</p>
     </div>
 </body>
-</html>`);
+</html>`;
+    res.send(html);
 });
-
 // Health endpoint
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    server: 'Simple MCP',
-    version: '1.0.0',
-    auth: 'none',
-    endpoints: {
-      sse: `${SERVER_URL}/sse`,
-      message: `${SERVER_URL}/message`
-    },
-    timestamp: new Date().toISOString()
-  });
+    res.json({
+        status: 'healthy',
+        server: 'Social MCP',
+        version: '1.0.0',
+        auth: 'descope-oauth',
+        package: '@descope/mcp-express',
+        endpoints: {
+            sse: `${SERVER_URL}/sse`,
+            oauth_discovery: `${SERVER_URL}/.well-known/oauth-authorization-server`,
+            authorize: `${SERVER_URL}/authorize`,
+            register: `${SERVER_URL}/register`
+        },
+        timestamp: new Date().toISOString()
+    });
 });
-
-// For local development
-if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`🚀 Simple MCP Server running on port ${PORT}`);
-    console.log(`📍 Server URL: ${SERVER_URL}`);
-    console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
-    console.log(`💬 Message Endpoint: ${SERVER_URL}/message`);
-    console.log(`✅ No Authentication Required`);
-  });
+// Create and connect MCP server
+const { server } = createServer();
+// Server setup
+const setupServer = async () => {
+    try {
+        await server.connect(transport);
+        console.log('✅ MCP Server connected successfully');
+    }
+    catch (error) {
+        console.error('❌ Failed to set up the MCP server:', error);
+        throw error;
+    }
+};
+// Initialize server setup
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    // Local development - start HTTP server
+    setupServer()
+        .then(() => {
+        app.listen(PORT, () => {
+            console.log(`🚀 Social MCP Server running on port ${PORT}`);
+            console.log(`📍 Server URL: ${SERVER_URL}`);
+            console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
+            console.log(`🔒 OAuth Discovery: ${SERVER_URL}/.well-known/oauth-authorization-server`);
+            console.log(`🔑 Authorization: ${SERVER_URL}/authorize`);
+            console.log(`📝 Registration: ${SERVER_URL}/register`);
+            console.log(`✅ Descope Authentication Enabled (@descope/mcp-express)`);
+        });
+    })
+        .catch(error => {
+        console.error('❌ Failed to start server:', error);
+        process.exit(1);
+    });
 }
-
+else {
+    // Vercel deployment - just initialize the server
+    setupServer().catch(error => {
+        console.error('❌ Failed to set up the MCP server:', error);
+    });
+}
+// Handle server shutdown
+process.on('SIGINT', async () => {
+    console.log('🛑 Shutting down server...');
+    try {
+        console.log(`Closing transport`);
+        await transport.close();
+    }
+    catch (error) {
+        console.error(`Error closing transport:`, error);
+    }
+    try {
+        await server.close();
+        console.log('✅ Server shutdown complete');
+    }
+    catch (error) {
+        console.error('Error closing server:', error);
+    }
+    process.exit(0);
+});
 export default app;

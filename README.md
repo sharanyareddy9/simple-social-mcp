@@ -9,12 +9,14 @@ A lightweight Model Context Protocol (MCP) server with social login integration,
 - 🛠️ Simple utility tools for Claude
 - 🚀 Vercel-ready serverless deployment
 - 📡 Server-Sent Events (SSE) transport
+- 🔧 TypeScript with automatic compilation
+- ✅ **DEPLOYMENT ISSUES FIXED** - Ready for Vercel deployment
 
 ## Available Tools
 
-- **greet_user**: Greet the authenticated user with their name
-- **get_current_time**: Get current date and time in specified timezone  
-- **simple_calculator**: Perform basic arithmetic operations
+- **greet-user**: Greet the authenticated user with their name
+- **get-current-time**: Get current date and time in specified timezone
+- **get-user-info**: Get information about the authenticated user
 
 ## Quick Setup
 
@@ -28,10 +30,12 @@ A lightweight Model Context Protocol (MCP) server with social login integration,
 ### 2. Deploy to Vercel
 
 1. Clone this repository
-2. Deploy to Vercel: `vercel deploy`
-3. Set environment variables in Vercel dashboard:
+2. Install dependencies: `npm install`
+3. Build the project: `npm run build`
+4. Deploy to Vercel: `vercel --prod`
+5. Set environment variables in Vercel dashboard:
    - `DESCOPE_PROJECT_ID`: Your Descope project ID
-   - `DESCOPE_ACCESS_KEY`: Your Descope access key
+   - `DESCOPE_MANAGEMENT_KEY`: Your Descope management key
 
 ### 3. Connect to Claude Web
 

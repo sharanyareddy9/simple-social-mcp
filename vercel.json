@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "buildCommand": "npm run build:vercel",
   "builds": [
     {
       "src": "api/index.js",
@@ -11,5 +12,13 @@
       "src": "/(.*)",
       "dest": "/api/index.js"
     }
-  ]
+  ],
+  "functions": {
+    "api/index.js": {
+      "runtime": "nodejs22.x"
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  }
 }

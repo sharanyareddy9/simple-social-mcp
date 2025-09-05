@@ -175,23 +175,31 @@ const setupServer = async () => {
     }
 };
 
-// Start server
-setupServer()
-    .then(() => {
-        app.listen(PORT, () => {
-            console.log(`🚀 Social MCP Server running on port ${PORT}`);
-            console.log(`📍 Server URL: ${SERVER_URL}`);
-            console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
-            console.log(`🔒 OAuth Discovery: ${SERVER_URL}/.well-known/oauth-authorization-server`);
-            console.log(`🔑 Authorization: ${SERVER_URL}/authorize`);
-            console.log(`📝 Registration: ${SERVER_URL}/register`);
-            console.log(`✅ Descope Authentication Enabled (@descope/mcp-express)`);
+// Initialize server setup
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    // Local development - start HTTP server
+    setupServer()
+        .then(() => {
+            app.listen(PORT, () => {
+                console.log(`🚀 Social MCP Server running on port ${PORT}`);
+                console.log(`📍 Server URL: ${SERVER_URL}`);
+                console.log(`🔌 SSE Endpoint: ${SERVER_URL}/sse`);
+                console.log(`🔒 OAuth Discovery: ${SERVER_URL}/.well-known/oauth-authorization-server`);
+                console.log(`🔑 Authorization: ${SERVER_URL}/authorize`);
+                console.log(`📝 Registration: ${SERVER_URL}/register`);
+                console.log(`✅ Descope Authentication Enabled (@descope/mcp-express)`);
+            });
+        })
+        .catch(error => {
+            console.error('❌ Failed to start server:', error);
+            process.exit(1);
         });
-    })
-    .catch(error => {
-        console.error('❌ Failed to start server:', error);
-        process.exit(1);
+} else {
+    // Vercel deployment - just initialize the server
+    setupServer().catch(error => {
+        console.error('❌ Failed to set up the MCP server:', error);
     });
+}
 
 // Handle server shutdown
 process.on('SIGINT', async () => {
