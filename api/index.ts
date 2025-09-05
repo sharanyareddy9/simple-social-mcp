@@ -30,7 +30,9 @@ function handleMCPRequest(body: MCPRequest): MCPResponse {
                 result: {
                     protocolVersion: '2024-11-05',
                     capabilities: {
-                        tools: {}
+                        tools: {
+                            listChanged: true
+                        }
                     },
                     serverInfo: {
                         name: 'simple-social-mcp',
@@ -68,6 +70,14 @@ function handleMCPRequest(body: MCPRequest): MCPResponse {
                         }
                     ]
                 },
+                id
+            };
+
+        case 'notifications/initialized':
+            // Client has completed initialization
+            return {
+                jsonrpc: '2.0',
+                result: {},
                 id
             };
 
