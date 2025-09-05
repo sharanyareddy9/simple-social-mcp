@@ -9,6 +9,10 @@ const SERVER_URL = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}` 
   : `http://localhost:${PORT}`;
 
+// Load Descope credentials
+const DESCOPE_PROJECT_ID = process.env.DESCOPE_PROJECT_ID;
+const DESCOPE_MANAGEMENT_KEY = process.env.DESCOPE_MANAGEMENT_KEY;
+
 // Middleware
 app.use(express.json());
 app.use(cors({
@@ -47,8 +51,99 @@ const tools = {
   }
 };
 
-// Simple MCP Server-Sent Events endpoint (no auth)
+// OAuth Authorization endpoint
+app.get('/oauth/authorize', (req, res) => {
+  if (!DESCOPE_PROJECT_ID) {
+    return res.status(500).json({
+      error: 'Server configuration error',
+      message: 'DESCOPE_PROJECT_ID not configured'
+    });
+  }
+
+  const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = req.query;
+
+  if (!client_id || !redirect_uri) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  // Redirect to Descope authentication
+  const descopeAuthUrl = `https://auth.descope.io/${DESCOPE_PROJECT_ID}/oauth2/authorize` +
+    `?client_id=${encodeURIComponent(client_id)}` +
+    `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
+    `&response_type=code` +
+    `&scope=openid profile email` +
+    (state ? `&state=${encodeURIComponent(state)}` : '') +
+    (code_challenge ? `&code_challenge=${encodeURIComponent(code_challenge)}` : '') +
+    (code_challenge_method ? `&code_challenge_method=${encodeURIComponent(code_challenge_method)}` : '');
+
+  return res.redirect(302, descopeAuthUrl);
+});
+
+// OAuth Token endpoint
+app.post('/oauth/token', async (req, res) => {
+  if (!DESCOPE_PROJECT_ID) {
+    return res.status(500).json({
+      error: 'Server configuration error',
+      message: 'DESCOPE_PROJECT_ID not configured'
+    });
+  }
+
+  const { code, client_id, redirect_uri, code_verifier } = req.body;
+
+  if (!code || !client_id) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
+  try {
+    // Exchange code for token with Descope
+    const tokenResponse = await fetch(`https://auth.descope.io/${DESCOPE_PROJECT_ID}/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        code,
+        client_id,
+        redirect_uri,
+        code_verifier
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenResponse.ok) {
+      return res.status(400).json({ error: 'Token exchange failed', details: tokenData });
+    }
+
+    return res.status(200).json(tokenData);
+
+  } catch (error) {
+    console.error('Token exchange error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// MCP Server-Sent Events endpoint (with auth)
 app.get('/sse', (req, res) => {
+  if (!DESCOPE_PROJECT_ID || !DESCOPE_MANAGEMENT_KEY) {
+    return res.status(500).json({
+      error: 'Server configuration error',
+      message: 'Environment variables not configured. Please set DESCOPE_PROJECT_ID and DESCOPE_MANAGEMENT_KEY.'
+    });
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      error: 'Authentication required - missing bearer token. Please authenticate via OAuth first.',
+      oauth: {
+        authorize: `${SERVER_URL}/oauth/authorize`,
+        token: `${SERVER_URL}/oauth/token`
+      }
+    });
+  }
+
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -63,7 +158,7 @@ app.get('/sse', (req, res) => {
     params: {
       protocolVersion: "2025-03-26",
       serverInfo: {
-        name: "Simple MCP",
+        name: "Simple MCP with Auth",
         version: "1.0.0"
       },
       capabilities: {
