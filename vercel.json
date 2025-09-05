@@ -1,8 +1,35 @@
 {
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index"
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/oauth2/(.*)",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/mcp/(.*)",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/users",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/posts",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/health",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/",
+      "dest": "/api/index.ts"
     }
   ]
 }
