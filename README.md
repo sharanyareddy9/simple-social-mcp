@@ -1,61 +1,59 @@
 # Simple Social MCP Server
 
-A lightweight Model Context Protocol (MCP) server with social login integration, designed for Claude Web. Built with Descope authentication and deployable on Vercel.
+A lightweight Model Context Protocol (MCP) server designed for Claude Web integration with Vercel deployment.
+
+## ✅ Status: Fixed & Working
+
+The MCP server endpoints are now **fully functional** after resolving the 500 FUNCTION_INVOCATION_FAILED error with a simplified, serverless-compatible implementation.
 
 ## Features
 
-- 🔐 Social login via Descope (Google, GitHub, etc.)
-- 🌐 OAuth 2.1 compliant authentication
-- 🛠️ Simple utility tools for Claude
-- 🚀 Vercel-ready serverless deployment
-- 📡 Server-Sent Events (SSE) transport
-- 🔧 TypeScript with automatic compilation
-- ✅ **DEPLOYMENT ISSUES FIXED** - Ready for Vercel deployment
+- 🚀 **Serverless Ready**: Optimized for Vercel deployment
+- 🛠️ **MCP Protocol**: Full JSON-RPC 2.0 implementation
+- 🔧 **Simple Tools**: Basic user interaction capabilities
+- 📱 **Claude Web Compatible**: Direct integration support
+- ✅ **500 Error Fixed**: Lightweight implementation without complex dependencies
 
 ## Available Tools
 
-- **greet-user**: Greet the authenticated user with their name
-- **get-current-time**: Get current date and time in specified timezone
-- **get-user-info**: Get information about the authenticated user
+- **`greet-user`**: Personalized greeting
+  ```json
+  { "name": "Alice" }
+  ```
 
-## Quick Setup
+- **`get-current-time`**: Server timestamp
+  ```json
+  {}
+  ```
 
-### 1. Setup Descope
+## Quick Deploy
 
-1. Create a free account at [Descope](https://descope.io)
-2. Create a new project and note your Project ID
-3. Generate an Access Key in the project settings
-4. Configure social providers (Google, GitHub, etc.) in the authentication methods
+1. **Fork & Deploy**
+   ```bash
+   git clone https://github.com/sharanyareddy9/simple-social-mcp.git
+   cd simple-social-mcp
+   npm install
+   npx vercel --prod
+   ```
 
-### 2. Deploy to Vercel
+2. **Use in Claude Web**
+   - **MCP Endpoint**: `https://your-app.vercel.app/api`
+   - No authentication required for basic functionality
 
-1. Clone this repository
-2. Install dependencies: `npm install`
-3. Build the project: `npm run build`
-4. Deploy to Vercel: `vercel --prod`
-5. Set environment variables in Vercel dashboard:
-   - `DESCOPE_PROJECT_ID`: Your Descope project ID
-   - `DESCOPE_MANAGEMENT_KEY`: Your Descope management key
+## Endpoints
 
-### 3. Connect to Claude Web
+- **MCP**: `POST /api` - JSON-RPC 2.0 MCP protocol
+- **Health**: `GET /health` - Server status check
+- **Home**: `GET /` - Server information page
 
-Once deployed, your MCP server will be available at:
-- **SSE Endpoint**: `https://your-app.vercel.app/sse`
-- **OAuth Metadata**: `https://your-app.vercel.app/.well-known/oauth-authorization-server`
+## Connect to Claude Web
 
 Add this configuration to your Claude Web MCP settings:
 
 ```json
 {
   "name": "Simple Social MCP",
-  "endpoint": "https://your-app.vercel.app/sse",
-  "auth": {
-    "type": "oauth",
-    "authorization_url": "https://your-app.vercel.app/oauth/authorize",
-    "token_url": "https://your-app.vercel.app/oauth/token",
-    "client_id": "claude-web",
-    "scopes": ["openid", "profile", "email", "tools:read"]
-  }
+  "endpoint": "https://your-app.vercel.app/api"
 }
 ```
 

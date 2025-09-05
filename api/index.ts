@@ -194,12 +194,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         </div>
         
         <h3>Endpoints</h3>
-        <div class="endpoint">MCP: ${SERVER_URL}/api</div>
+        <div class="endpoint">MCP (SSE): ${SERVER_URL}/sse</div>
+        <div class="endpoint">MCP (HTTP): ${SERVER_URL}/api</div>
         <div class="endpoint">Health: ${SERVER_URL}/health</div>
         
         <h3>Available Tools</h3>
         <p>• greet-user - Greet the user</p>
         <p>• get-current-time - Get server time</p>
+        
+        <h3>Claude Web Integration</h3>
+        <p>Use SSE endpoint: <strong>${SERVER_URL}/sse</strong></p>
         
         <p>Ready for Claude Web! 🎉</p>
     </div>
@@ -221,6 +225,65 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 health: `${SERVER_URL}/health`
             }
         });
+    }
+
+    if (url === '/sse' && method === 'GET') {
+        // SSE endpoint for Claude Web MCP integration
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+
+        // Send initial connection event
+        res.write('event: message\n');
+        res.write('data: {"jsonrpc":"2.0","method":"server/ready","params":{}}\n\n');
+
+        // Keep connection alive
+        const keepAlive = setInterval(() => {
+            res.write('event: ping\n');
+            res.write('data: {}\n\n');
+        }, 30000);
+
+        // Handle client disconnect
+        req.on('close', () => {
+            clearInterval(keepAlive);
+        });
+
+        return;
+    }
+
+    if (url === '/sse' && method === 'POST') {
+        // Handle MCP requests over SSE
+        try {
+            const body = req.body as MCPRequest;
+            console.log('Received SSE MCP request:', body);
+
+            if (!body || !body.method) {
+                return res.status(400).json({
+                    jsonrpc: '2.0',
+                    error: {
+                        code: -32600,
+                        message: 'Invalid Request'
+                    },
+                    id: body?.id || null
+                });
+            }
+
+            const response = handleMCPRequest(body);
+            return res.json(response);
+
+        } catch (error) {
+            console.error('Error handling SSE MCP request:', error);
+            return res.status(500).json({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32603,
+                    message: 'Internal server error'
+                },
+                id: req.body?.id || null
+            });
+        }
     }
 
     if (url === '/api' && method === 'POST') {
@@ -256,13 +319,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
     }
 
-    if (url === '/api' && method !== 'POST') {
-        // Method not allowed for MCP endpoint
+    if ((url === '/api' || url === '/sse') && method !== 'POST' && method !== 'GET') {
+        // Method not allowed for MCP endpoints
         return res.status(405).json({
             jsonrpc: '2.0',
             error: {
                 code: -32000,
-                message: 'Method not allowed. Use POST for MCP requests.'
+                message: 'Method not allowed. Use POST for MCP requests or GET for SSE.'
             },
             id: null
         });
